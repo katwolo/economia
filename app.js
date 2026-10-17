@@ -13,6 +13,9 @@ const uid = () =>
 const esc = (s = '') =>
   String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 
+// Se muestra en Ajustes para saber qué versión tiene cada móvil (igual que CACHE en sw.js).
+const APP_VERSION = 6;
+
 const ICONS = {
   plus: '<path d="M12 5v14M5 12h14"/>',
   search: '<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>',
@@ -790,7 +793,7 @@ function viewMore() {
     </div>
     <div class="card stack">
       <h2>Datos</h2>
-      <p class="prose">${movs.length} movimientos y ${activeFixed().length} gastos fijos guardados.</p>
+      <p class="prose">${movs.length} movimientos y ${activeFixed().length} gastos fijos guardados. Versión ${APP_VERSION} de la app.</p>
       <div class="btn-row">
         ${isConfigured() ? '' : '<button class="btn" data-action="demo">Cargar datos de ejemplo</button>'}
         <button class="btn danger" data-action="wipe">Borrar todo</button>
@@ -1412,7 +1415,13 @@ document.addEventListener('visibilitychange', () => {
 });
 
 if ('serviceWorker' in navigator && location.protocol !== 'file:') {
-  navigator.serviceWorker.register('sw.js').catch(() => {});
+  // Cuando se instala una versión nueva de la app, se recarga una vez para usarla ya.
+  const hadController = Boolean(navigator.serviceWorker.controller);
+  let reloaded = false;
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (hadController && !reloaded) { reloaded = true; location.reload(); }
+  });
+  navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' }).then((r) => r.update()).catch(() => {});
 }
 
 await load();

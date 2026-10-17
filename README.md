@@ -116,6 +116,9 @@ python3 -m http.server 8000
 
 En la pantalla de inicio pulsa **Cargar datos de ejemplo** para ver los gráficos con datos.
 
+Cuando se publica una versión nueva, basta con cerrar la app y volver a abrirla (con conexión):
+se actualiza sola. En *Ajustes > Datos* se ve el número de versión que tiene cada móvil.
+
 Para instalarla en el móvil hay que servirla por HTTPS (con GitHub Pages: *Settings > Pages >
 Deploy from a branch*) y elegir "Añadir a pantalla de inicio" en el navegador.
 
