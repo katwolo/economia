@@ -1,0 +1,11 @@
+{
+  "name": "Economía familiar",
+  "short_name": "Economía",
+  "description": "Ingresos, gastos y presupuestos de casa. Lee extractos del banco y tickets.",
+  "start_url": "./#/inicio",
+  "display": "standalone",
+  "background_color": "#121214",
+  "theme_color": "#121214",
+  "lang": "es",
+  "icons": [{ "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }]
+}
