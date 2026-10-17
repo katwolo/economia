@@ -79,6 +79,16 @@ const names = () => {
 const whoName = (id) => (id === 'p1' || id === 'p2' ? names()[id] : 'Los dos');
 const me = () => store.get('economia.me'); // de quién es este móvil ("p1", "p2" o vacío)
 
+// ---------- Estilo ----------
+// Oscuro (por defecto) o claro. Se guarda en cada móvil, no se sincroniza.
+const theme = () => (store.get('economia.theme') === 'light' ? 'light' : 'dark');
+function applyTheme(t) {
+  store.set('economia.theme', t);
+  if (t === 'light') document.documentElement.dataset.theme = 'light';
+  else delete document.documentElement.dataset.theme;
+  $('meta[name="theme-color"]')?.setAttribute('content', t === 'light' ? '#f6f5f2' : '#121214');
+}
+
 async function load() {
   const [list, ...saved] = await Promise.all([db.all('movs'), ...TABLES.map((k) => db.get('meta', k))]);
   movs = list.map((m) => ({ who: 'comun', addedBy: '', fixedId: '', ...m }));
@@ -723,6 +733,13 @@ function viewMore() {
   const n = names();
   const mine = me();
   return `<div class="page-head"><a class="icon-btn" href="#/inicio" aria-label="Volver">${icon('back')}</a><h1>Ajustes</h1></div>
+    <div class="card stack">
+      <h2>Estilo</h2>
+      <div class="seg full" role="radiogroup" aria-label="Estilo">
+        ${[['dark', '🌙 Oscuro'], ['light', '☀️ Claro']].map(([v, l]) =>
+          `<label><input type="radio" name="theme" value="${v}" ${theme() === v ? 'checked' : ''}><span>${l}</span></label>`).join('')}
+      </div>
+    </div>
     <form id="couple-form" class="card stack" autocomplete="off">
       <h2>Pareja</h2>
       <p class="prose">Los dos podéis usar la app a la vez, cada uno en su móvil y con la misma clave de Google. Por defecto todo es <strong>de los dos</strong>; si un gasto es solo de uno, se elige al apuntarlo.</p>
@@ -1242,6 +1259,7 @@ document.addEventListener('change', async (e) => {
     t.value = '';
   }
   if (t.name === 'review-who') review.who = t.value;
+  if (t.name === 'theme') applyTheme(t.value);
   if (t.dataset.keep !== undefined) {
     review.rows[Number(t.dataset.keep)].keep = t.checked;
     render();

@@ -16,29 +16,36 @@
   --base: #4a4a50;
   --good: #0ca30c;
   --warning: #fab219;
+  --warn-text: #fab219;
   --critical: #d03b3b;
+  --shadow: rgba(0, 0, 0, .35);
   --radius: 16px;
   color-scheme: dark;
 }
 
-@media (prefers-color-scheme: light) {
-  :root {
-    --bg: #f6f5f2;
-    --surface: #ffffff;
-    --surface-2: #eeede9;
-    --line: #dcdbd6;
-    --text: #1a1a1c;
-    --muted: #686870;
-    --accent: #138a77;
-    --on-accent: #ffffff;
-    --pos: #006300;
-    --income: #2a78d6;
-    --expense: #eb6834;
-    --grid: #e1e0d9;
-    --base: #c3c2b7;
-    color-scheme: light;
-  }
+/* Estilo claro: se elige en Ajustes (el oscuro es el de siempre). */
+:root[data-theme="light"] {
+  --bg: #f6f5f2;
+  --surface: #ffffff;
+  --surface-2: #eeede9;
+  --line: #dcdbd6;
+  --text: #1a1a1c;
+  --muted: #686870;
+  --accent: #138a77;
+  --on-accent: #ffffff;
+  --pos: #006300;
+  --danger: #c62f2f;
+  --income: #2a78d6;
+  --expense: #eb6834;
+  --grid: #e1e0d9;
+  --base: #c3c2b7;
+  --warn-text: #9a5b00;
+  --shadow: rgba(0, 0, 0, .12);
+  color-scheme: light;
 }
+:root[data-theme="light"] .card,
+:root[data-theme="light"] .tile,
+:root[data-theme="light"] .drop { box-shadow: 0 1px 2px var(--shadow); }
 
 * { box-sizing: border-box; }
 html, body { margin: 0; }
@@ -299,7 +306,7 @@ details pre { white-space: pre-wrap; font-size: 12px; color: var(--muted); max-h
 .tabs a.add, .tabs a.add.active { background: none; padding: 0; }
 .add-btn {
   width: 52px; height: 52px; border-radius: 50%; display: grid; place-items: center; margin: -4px 0;
-  background: var(--accent); color: var(--on-accent); box-shadow: 0 6px 20px rgba(0, 0, 0, .3);
+  background: var(--accent); color: var(--on-accent); box-shadow: 0 6px 20px var(--shadow);
 }
 
 #toast {
@@ -327,7 +334,7 @@ details pre { white-space: pre-wrap; font-size: 12px; color: var(--muted); max-h
 
 .tiles.three { grid-template-columns: repeat(3, 1fr); margin-bottom: 12px; }
 .tiles.three strong { font-size: 18px; }
-.warn { color: var(--warning); }
+.warn { color: var(--warn-text); }
 .fx { display: flex; align-items: center; gap: 8px; border-bottom: 1px solid var(--line); }
 .fx .row { flex: 1; min-width: 0; border-bottom: 0; }
 .fx .row-main small { font-size: 12px; color: var(--muted); }

@@ -34,6 +34,7 @@ Está organizada como las plantillas y apps de presupuesto familiar: **ingresos*
 - **Categorías automáticas** agrupadas en fijos, variables, ahorro e ingresos. Si corriges una,
   la app lo aprende para la próxima vez.
 - **Copia de seguridad** en JSON, **exportar a Excel** (CSV) y **datos de ejemplo**.
+- **Estilo oscuro o claro**, a elegir en *Ajustes* (cada móvil el suyo; por defecto, oscuro).
 
 Los archivos se leen en el propio móvil u ordenador. La primera vez que abres un Excel, un PDF
 o una foto se descarga el lector correspondiente (SheetJS, PDF.js o Tesseract.js); después
@@ -95,7 +96,7 @@ móviles (por ejemplo, los dos de la pareja) y ver o editar los movimientos en u
 
 | Archivo | Qué contiene |
 |---|---|
-| `index.html`, `styles.css` | Pantalla y estilos (modo claro y oscuro automáticos) |
+| `index.html`, `styles.css` | Pantalla y estilos (oscuro o claro, se elige en Ajustes) |
 | `app.js` | Pantallas, navegación y cálculos |
 | `importer.js` | Lectura de CSV, Excel, PDF y fotos (OCR) |
 | `categories.js` | Categorías y palabras clave para clasificar |
