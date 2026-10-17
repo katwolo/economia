@@ -43,6 +43,11 @@ const CATEGORIAS = {
   nomina: ['Nómina', 'ingreso'],
   otros_ingresos: ['Otros ingresos', 'ingreso'],
 };
+// Nombres de la versión anterior, para leer bien las hojas antiguas.
+const NOMBRES_ANTIGUOS = {
+  supermercado: 'super', vivienda: 'casa', 'transporte y coche': 'transporte', salud: 'salud',
+  'educación e hijos': 'educacion', suscripciones: 'suscripciones',
+};
 const GRUPOS = { fijo: 'Gasto fijo', variable: 'Gasto variable', ahorro: 'Ahorro', ingreso: 'Ingreso' };
 const isIncome_ = (cat) => (CATEGORIAS[cat] || [])[1] === 'ingreso';
 
@@ -185,6 +190,8 @@ function configurar() {
   if (vacia && vacia.getLastRow() === 0 && SpreadsheetApp.getActive().getSheets().length > 1) {
     SpreadsheetApp.getActive().deleteSheet(vacia);
   }
+  // Si la hoja viene de una versión anterior, se pasa al formato nuevo sin perder datos.
+  withLock_(() => sync_({}));
   Logger.log('Todo listo. Carpeta de Drive: ' + folder_().getName());
 }
 
@@ -260,9 +267,10 @@ function mergeTable_(key, incoming) {
   const sh = table_(key);
   const t = TABLES[key];
   const records = readRecords_(t, sh);
+  const outdated = !headerOk_(t, sh); // hoja de una versión anterior: se reescribe entera
   const index = {};
   records.forEach((r, i) => (index[r.id] = i));
-  let changed = false;
+  let changed = outdated;
 
   incoming.forEach((rec) => {
     if (!rec || !rec.id) return;
@@ -286,7 +294,9 @@ function mergeTable_(key, incoming) {
     // Los movimientos más recientes, arriba.
     if (key === 'movs') records.sort((a, b) => String(b.date).localeCompare(String(a.date)));
     const rows = records.map((r) => t.cols.map((c) => toCell_(c, r)));
-    if (sh.getLastRow() > 1) sh.getRange(2, 1, sh.getLastRow() - 1, t.cols.length).clearContent();
+    const width = Math.max(sh.getLastColumn(), t.cols.length);
+    if (sh.getLastRow() > 1) sh.getRange(2, 1, sh.getLastRow() - 1, width).clearContent();
+    if (outdated) setupColumns_(t, sh);
     if (rows.length) {
       t.cols.forEach((c, i) => sh.getRange(2, i + 1, rows.length, 1).setNumberFormat(FORMATS[c[2]] || '@'));
       sh.getRange(2, 1, rows.length, t.cols.length).setValues(rows);
@@ -300,36 +310,51 @@ function table_(key) {
   const ss = SpreadsheetApp.getActive();
   let sh = ss.getSheetByName(t.sheet);
   if (!sh) sh = ss.insertSheet(t.sheet);
-  if (sh.getLastRow() === 0) {
-    sh.getRange(1, 1, 1, t.cols.length).setValues([t.cols.map((c) => c[1])]).setFontWeight('bold');
-    sh.setFrozenRows(1);
-    // Desplegable con las categorías para poder elegirlas al editar a mano.
-    const names = Object.keys(CATEGORIAS).map((k) => CATEGORIAS[k][0]);
-    const rule = SpreadsheetApp.newDataValidation().requireValueInList(names, true).setAllowInvalid(true).build();
-    t.cols.forEach((c, i) => {
-      const range = sh.getRange(2, i + 1, sh.getMaxRows() - 1, 1);
-      range.setNumberFormat(FORMATS[c[2]] || '@');
-      if (c[2] === 'cat') range.setDataValidation(rule);
-    });
-  }
+  if (sh.getLastRow() === 0) setupColumns_(t, sh);
   return sh;
 }
 
+// Las columnas se buscan por su encabezado: así una hoja de una versión anterior (con otras
+// columnas o en otro orden) se lee bien y se reescribe con el formato nuevo.
 function readRecords_(t, sh) {
   if (sh.getLastRow() < 2) return [];
-  const idCol = t.cols.findIndex((c) => c[0] === 'id');
-  return sh
-    .getRange(2, 1, sh.getLastRow() - 1, t.cols.length)
-    .getValues()
+  const width = Math.max(sh.getLastColumn(), t.cols.length);
+  const values = sh.getRange(1, 1, sh.getLastRow(), width).getValues();
+  const head = values[0].map((h) => String(h).trim());
+  const pos = t.cols.map((c) => head.indexOf(c[1]));
+  const idCol = pos[t.cols.findIndex((c) => c[0] === 'id')];
+  if (idCol < 0) return [];
+  return values
+    .slice(1)
     .filter((row) => row[idCol] !== '')
     .map((row) => {
       const rec = {};
       t.cols.forEach((c, i) => {
-        const v = fromCell_(c, row[i]);
+        const v = fromCell_(c, pos[i] >= 0 ? row[pos[i]] : '');
         if (v !== undefined) rec[c[0]] = v;
       });
       return rec;
     });
+}
+
+function headerOk_(t, sh) {
+  const head = sh.getRange(1, 1, 1, Math.max(sh.getLastColumn(), t.cols.length)).getValues()[0];
+  return t.cols.every((c, i) => head[i] === c[1]) && head.slice(t.cols.length).every((h) => h === '');
+}
+
+// Encabezados, formatos de columna y desplegable de categorías.
+function setupColumns_(t, sh) {
+  const width = Math.max(sh.getLastColumn(), t.cols.length);
+  sh.getRange(1, 1, 1, width).clearContent();
+  sh.getRange(1, 1, 1, t.cols.length).setValues([t.cols.map((c) => c[1])]).setFontWeight('bold');
+  sh.setFrozenRows(1);
+  const names = Object.keys(CATEGORIAS).map((k) => CATEGORIAS[k][0]);
+  const rule = SpreadsheetApp.newDataValidation().requireValueInList(names, true).setAllowInvalid(true).build();
+  t.cols.forEach((c, i) => {
+    const range = sh.getRange(2, i + 1, sh.getMaxRows() - 1, 1);
+    range.setNumberFormat(FORMATS[c[2]] || '@');
+    range.setDataValidation(c[2] === 'cat' ? rule : null);
+  });
 }
 
 // Normaliza lo que llega de la app para que sea igual que lo leído de la hoja.
@@ -388,7 +413,7 @@ function catId_(v) {
   const s = String(v || '').trim().toLowerCase();
   if (CATEGORIAS[s]) return s;
   const k = Object.keys(CATEGORIAS).find((id) => CATEGORIAS[id][0].toLowerCase() === s);
-  return k || 'otros';
+  return k || NOMBRES_ANTIGUOS[s] || 'otros';
 }
 
 // "Ana" o "p1" -> "p1"; "Los dos" o un nombre desconocido -> "comun"; vacío -> def.

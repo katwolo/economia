@@ -61,9 +61,14 @@ móviles (por ejemplo, los dos de la pareja) y ver o editar los movimientos en u
 7. En la app: **Más > Google Sheets y Drive**, escribe la clave y pulsa
    *Guardar y sincronizar*. Hazlo en cada móvil u ordenador que uses.
 
-Si cambias `Codigo.gs` más adelante, pega la versión nueva (la clave sigue guardada en
-las propiedades del script) y usa **Implementar > Gestionar implementaciones >
-Editar > Nueva versión** para que la URL siga siendo la misma.
+### Actualizar el script (cuando cambie `Codigo.gs`)
+
+1. En **Extensiones > Apps Script**, borra el código y pega la versión nueva de `Codigo.gs`
+   (la clave sigue guardada en las propiedades del script).
+2. Ejecuta otra vez `configurar`: crea las pestañas nuevas y pasa las que ya tenías al formato
+   nuevo sin perder datos (las columnas se reconocen por su nombre).
+3. **Implementar > Gestionar implementaciones > Editar (lápiz) > Versión: Nueva versión >
+   Implementar**. Así la URL sigue siendo la misma y no hay que cambiar nada en la app.
 
 ### Cómo funciona
 
