@@ -7,29 +7,33 @@ de Drive.
 
 ## Qué hace
 
-- **Resumen del mes**: lo que entra, lo que sale y lo que te queda, en grande y con frases
-  claras ("Ahorras el 54 % de lo que entra").
-- **Gráficos**
-  - Ingresos y gastos de los últimos 6 meses (toca una barra para ver el detalle).
-  - ¿En qué se va el dinero? Gasto por categoría, de mayor a menor. Toca una categoría para
-    ver sus movimientos.
-  - Presupuestos con barra de progreso: *Vas bien*, *Cerca del límite* o *Te has pasado*.
+Está organizada como las plantillas y apps de presupuesto familiar: **ingresos**, **gastos fijos**,
+**gastos variables** y **ahorro**, y pensada para una pareja que la usa a la vez.
+
+- **Resumen del mes**: lo que entra, lo que se va en fijos y en variables, lo apartado a ahorro y
+  lo que queda. Gráfico de los últimos 6 meses, gasto variable por categoría y quién ha gastado.
+- **Gastos fijos**: los recibos que llegan cada mes o cada cierto tiempo (hipoteca, luz, seguros,
+  colegio, IBI anual...), con su día de cobro. Cada mes ves cuáles están **pagados** y cuáles
+  **pendientes**; al importar el extracto del banco se marcan solos, o con el botón *Pagar*.
+  Avisa de cuánto apartar al mes para los recibos que no son mensuales y propone como fijos los
+  pagos que se repiten.
+- **Presupuesto**
+  - *Previsto y real*: ingresos, fijos, variables y ahorro del mes, con la diferencia.
+  - *Regla 50/30/20*: necesidades, caprichos y ahorro frente a lo que entra.
+  - *Objetivos de ahorro* (vacaciones, colchón para imprevistos...) con lo que hay que apartar
+    al mes para llegar a tiempo.
+  - Límite mensual para cada gasto variable, con aviso al acercarse.
+- **Pareja**: por defecto todo es **de los dos**; si un gasto o ingreso es de uno solo, se elige al
+  apuntarlo (o para todo un extracto al importarlo). Los nombres se ponen en *Ajustes* y cada
+  móvil indica de quién es, para saber quién apuntó cada cosa. El resumen y los movimientos se
+  pueden ver de todo, de lo común o de cada uno.
 - **Subir archivos y que se rellene todo solo**
-  - **Extracto del banco** en Excel (`.xlsx`, `.xls`, `.ods`), CSV o PDF: reconoce las columnas
-    de fecha, concepto e importe (o cargo/abono) de la mayoría de bancos españoles.
-  - **Tickets y facturas** en PDF o foto: lee la tienda, la fecha y el total y te deja el
-    formulario ya rellenado para revisarlo.
-  - Antes de guardar ves una lista para revisar; los movimientos que ya tenías se marcan
-    como *ya está* y no se duplican.
-- **Categorías automáticas**: Mercadona → Supermercado, Endesa → Luz, Netflix →
-  Suscripciones... Si corriges una, la app lo aprende para la próxima vez
-  (lo puedes ver y borrar en *Más*).
-- **Gastos fijos**: detecta los recibos que se repiten cada mes (hipoteca, luz, seguros,
-  suscripciones) y suma cuánto suponen.
-- **Presupuestos** por categoría, con la media de los 3 meses anteriores como referencia.
-- **Movimientos**: lista por días, buscador y filtros (gastos / ingresos / categoría).
-- **Copia de seguridad** en JSON, **exportar a Excel** (CSV) y **datos de ejemplo** para
-  probarla sin meter nada tuyo.
+  - **Extracto del banco** en Excel (`.xlsx`, `.xls`, `.ods`), CSV o PDF.
+  - **Tickets y facturas** en PDF o foto: lee la tienda, la fecha y el total.
+  - Antes de guardar ves una lista para revisar; los movimientos que ya tenías no se duplican.
+- **Categorías automáticas** agrupadas en fijos, variables, ahorro e ingresos. Si corriges una,
+  la app lo aprende para la próxima vez.
+- **Copia de seguridad** en JSON, **exportar a Excel** (CSV) y **datos de ejemplo**.
 
 Los archivos se leen en el propio móvil u ordenador. La primera vez que abres un Excel, un PDF
 o una foto se descarga el lector correspondiente (SheetJS, PDF.js o Tesseract.js); después
@@ -47,8 +51,8 @@ móviles (por ejemplo, los dos de la pareja) y ver o editar los movimientos en u
    script > Añadir propiedad**, con nombre `TOKEN` y como valor una clave larga
    inventada. No la escribas en el código ni la subas a GitHub: el repositorio es público.
 4. Elige la función `configurar` y pulsa **Ejecutar**. Acepta los permisos.
-   Se crean las pestañas *Movimientos*, *Presupuestos* y *Reglas*, y en tu Drive la carpeta
-   *Economía familiar - tickets*.
+   Se crean las pestañas *Movimientos*, *Gastos fijos*, *Presupuestos*, *Objetivos de ahorro*,
+   *Ajustes* y *Reglas*, y en tu Drive la carpeta *Economía familiar - tickets*.
 5. **Implementar > Nueva implementación > Aplicación web**:
    - Ejecutar como: **Yo**
    - Quién tiene acceso: **Cualquier usuario**
@@ -64,13 +68,17 @@ Editar > Nueva versión** para que la URL siga siendo la misma.
 ### Cómo funciona
 
 - Cada fila de *Movimientos* es un movimiento: fecha, concepto, categoría, importe (los gastos
-  en negativo) y, si viene de un ticket, el enlace a la foto o el PDF en Drive.
+  en negativo), tipo (gasto fijo, gasto variable, ahorro o ingreso), quién (*Los dos* o el
+  nombre de cada uno) y, si viene de un ticket, el enlace a la foto o el PDF en Drive.
+- *Gastos fijos* tiene un recibo por fila: importe, día de cobro, cada cuántos meses llega,
+  el primer mes y cómo aparece en el banco (para marcarlo como pagado solo).
+- En *Ajustes* están los nombres de los dos (`p1` y `p2`); se cambian desde la app o aquí.
   El importe es un número de verdad, así que puedes hacer sumas, filtros o tablas dinámicas.
 - Puedes **corregir o añadir filas a mano** en la hoja. La categoría se elige en un desplegable.
   Si escribes un gasto en positivo se pone en negativo solo. Los cambios llegan a la app en la
   siguiente sincronización.
-- *Presupuestos* y *Reglas* (lo que la app ha aprendido al corregir categorías) también se
-  comparten entre dispositivos y se pueden editar en la hoja.
+- *Presupuestos*, *Objetivos de ahorro* y *Reglas* (lo que la app ha aprendido al corregir
+  categorías) también se comparten entre los dos móviles y se pueden editar en la hoja.
 - Se sincroniza sola unos segundos después de cada cambio, al abrir la app y al volver a ella.
   Si un mismo movimiento se cambia en dos sitios, gana el cambio más reciente.
 - Al borrar algo en la app, la fila se marca como *Borrado* (no se elimina, por si acaso)
@@ -107,8 +115,8 @@ Deploy from a branch*) y elegir "Añadir a pantalla de inicio" en el navegador.
 
 ## Próximos pasos propuestos
 
-1. **Varias cuentas o personas** (cuenta común, tarjeta de cada uno) con filtro en el resumen.
-2. **Objetivos de ahorro** (vacaciones, colchón de emergencia) con barra de progreso.
-3. **Avisos**: cuando una categoría pasa del 80 % del presupuesto o llega un recibo más caro
+1. **Reparto entre los dos**: si alguna vez pagáis cosas comunes desde cuentas propias, calcular
+   quién ha puesto más y cuánto debe uno al otro (como Tricount o Splitwise).
+2. **Avisos**: cuando una categoría pasa del 80 % del presupuesto o llega un recibo más caro
    de lo normal.
-4. **Resumen anual** para la declaración de la renta (gastos de colegio, médicos, donativos).
+3. **Resumen anual** para la declaración de la renta (gastos de colegio, médicos, donativos).

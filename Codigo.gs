@@ -2,8 +2,8 @@
  * Economía familiar — backend en Google Apps Script.
  *
  * Pega este archivo en Extensiones > Apps Script de tu hoja de cálculo.
- * - Los movimientos, presupuestos y reglas se guardan en las pestañas "Movimientos",
- *   "Presupuestos" y "Reglas".
+ * - Los movimientos, gastos fijos, presupuestos, objetivos de ahorro, ajustes y reglas se
+ *   guardan cada uno en su pestaña.
  * - Las fotos y PDF de los tickets se guardan en una carpeta de Drive que se crea sola.
  * Pasos completos en el README.
  */
@@ -20,24 +20,34 @@ const FOLDER_NAME = 'Economía familiar - tickets';
 const MAX_CELL = 49000; // Sheets admite 50.000 caracteres por celda
 
 // Las mismas categorías que categories.js (si añades una allí, añádela aquí).
+// [nombre, grupo]
 const CATEGORIAS = {
-  super: 'Supermercado',
-  casa: 'Vivienda',
-  suministros: 'Luz, agua, gas e internet',
-  transporte: 'Transporte y coche',
-  salud: 'Salud',
-  educacion: 'Educación e hijos',
-  restaurantes: 'Bares y restaurantes',
-  ocio: 'Ocio y viajes',
-  ropa: 'Ropa y compras',
-  suscripciones: 'Suscripciones',
-  seguros: 'Seguros',
-  impuestos: 'Impuestos y comisiones',
-  otros: 'Otros gastos',
-  nomina: 'Nómina',
-  otros_ingresos: 'Otros ingresos',
+  casa: ['Alquiler o hipoteca', 'fijo'],
+  comunidad: ['Comunidad e IBI', 'fijo'],
+  suministros: ['Luz, agua, gas e internet', 'fijo'],
+  seguros: ['Seguros', 'fijo'],
+  prestamos: ['Préstamos y tarjetas', 'fijo'],
+  educacion: ['Colegio y guardería', 'fijo'],
+  suscripciones: ['Suscripciones y cuotas', 'fijo'],
+  impuestos: ['Impuestos y comisiones', 'fijo'],
+  super: ['Alimentación y súper', 'variable'],
+  transporte: ['Transporte y gasolina', 'variable'],
+  salud: ['Salud y farmacia', 'variable'],
+  hogar: ['Hogar y reparaciones', 'variable'],
+  restaurantes: ['Bares y restaurantes', 'variable'],
+  ocio: ['Ocio y viajes', 'variable'],
+  ropa: ['Ropa y compras', 'variable'],
+  regalos: ['Regalos y celebraciones', 'variable'],
+  otros: ['Otros gastos', 'variable'],
+  ahorro: ['Ahorro e inversión', 'ahorro'],
+  nomina: ['Nómina', 'ingreso'],
+  otros_ingresos: ['Otros ingresos', 'ingreso'],
 };
-const INGRESOS = ['nomina', 'otros_ingresos'];
+const GRUPOS = { fijo: 'Gasto fijo', variable: 'Gasto variable', ahorro: 'Ahorro', ingreso: 'Ingreso' };
+const isIncome_ = (cat) => (CATEGORIAS[cat] || [])[1] === 'ingreso';
+
+// Quién: "comun" (los dos), "p1" o "p2". Los nombres están en la pestaña Ajustes.
+const LOS_DOS = 'Los dos';
 
 // [clave en la app, encabezado en la hoja, formato]
 const TABLES = {
@@ -50,11 +60,14 @@ const TABLES = {
       ['category', 'Categoría', 'cat'],
       ['amount', 'Importe', 'money'],
       ['kind', 'Tipo', 'computed'],
+      ['who', 'Quién', 'who'],
       ['note', 'Nota'],
       ['driveUrl', 'Ticket'],
       ['source', 'Origen'],
+      ['addedBy', 'Añadido por', 'who'],
       ['modified', 'Modificado', 'readable'],
       ['id', 'ID'],
+      ['fixedId', 'ID gasto fijo'],
       ['driveId', 'ID archivo'],
       ['mime', 'Tipo archivo'],
       ['createdAt', 'Creado', 'num'],
@@ -67,6 +80,49 @@ const TABLES = {
     cols: [
       ['id', 'Categoría', 'cat'],
       ['limit', 'Límite al mes', 'money'],
+      ['modified', 'Modificado', 'readable'],
+      ['updatedAt', 'Actualizado', 'num'],
+    ],
+  },
+  fixed: {
+    sheet: 'Gastos fijos',
+    uuid: true,
+    cols: [
+      ['name', 'Recibo'],
+      ['category', 'Categoría', 'cat'],
+      ['amount', 'Importe', 'money'],
+      ['day', 'Día de cobro', 'num'],
+      ['every', 'Cada (meses)', 'num'],
+      ['start', 'Primer mes (aaaa-mm)'],
+      ['who', 'Quién', 'who'],
+      ['match', 'Concepto en el banco'],
+      ['modified', 'Modificado', 'readable'],
+      ['id', 'ID'],
+      ['createdAt', 'Creado', 'num'],
+      ['updatedAt', 'Actualizado', 'num'],
+      ['deleted', 'Borrado', 'bool'],
+    ],
+  },
+  goals: {
+    sheet: 'Objetivos de ahorro',
+    uuid: true,
+    cols: [
+      ['name', 'Objetivo'],
+      ['target', 'Meta', 'money'],
+      ['saved', 'Ahorrado', 'money'],
+      ['deadline', 'Fecha límite', 'date'],
+      ['modified', 'Modificado', 'readable'],
+      ['id', 'ID'],
+      ['createdAt', 'Creado', 'num'],
+      ['updatedAt', 'Actualizado', 'num'],
+      ['deleted', 'Borrado', 'bool'],
+    ],
+  },
+  settings: {
+    sheet: 'Ajustes',
+    cols: [
+      ['id', 'Ajuste'],
+      ['value', 'Valor'],
       ['modified', 'Modificado', 'readable'],
       ['updatedAt', 'Actualizado', 'num'],
     ],
@@ -119,6 +175,12 @@ function configurar() {
     throw new Error('Añade la propiedad TOKEN en Configuración del proyecto > Propiedades del script');
   }
   Object.keys(TABLES).forEach(table_);
+  // Nombres por defecto; se cambian desde la app (Más > Pareja) o aquí mismo.
+  const ajustes = table_('settings');
+  if (ajustes.getLastRow() < 2) {
+    const now = Date.now();
+    ajustes.getRange(2, 1, 2, 4).setValues([['p1', 'Persona 1', '', now], ['p2', 'Persona 2', '', now]]);
+  }
   const vacia = SpreadsheetApp.getActive().getSheetByName('Hoja 1') || SpreadsheetApp.getActive().getSheetByName('Sheet1');
   if (vacia && vacia.getLastRow() === 0 && SpreadsheetApp.getActive().getSheets().length > 1) {
     SpreadsheetApp.getActive().deleteSheet(vacia);
@@ -157,7 +219,7 @@ function onEdit(e) {
     }
     // Signo del importe: los gastos en negativo y los ingresos en positivo.
     if (key === 'movs' && (editedCol('amount') || editedCol('category'))) {
-      const income = INGRESOS.indexOf(catId_(row[col('category')])) >= 0;
+      const income = isIncome_(catId_(row[col('category')]));
       const amount = toNumber_(row[col('amount')]);
       if (editedCol('amount') && amount > 0 && !income) set('amount', i, -amount);
       if (editedCol('category') && amount < 0 && income) set('amount', i, -amount);
@@ -172,11 +234,25 @@ function onEdit(e) {
 
 // ---------- Sincronización ----------
 function sync_(req) {
-  const out = {};
+  // Primero los ajustes, para tener los nombres de los dos al escribir la columna "Quién".
+  const out = { settings: mergeTable_('settings', req.settings || []) };
+  names_(out.settings);
   Object.keys(TABLES).forEach((key) => {
-    out[key] = mergeTable_(key, req[key] || []);
+    if (key !== 'settings') out[key] = mergeTable_(key, req[key] || []);
   });
   return out;
+}
+
+// Nombres de las dos personas (pestaña Ajustes, filas p1 y p2).
+let NAMES_ = null;
+function names_(records) {
+  if (!records) {
+    if (NAMES_) return NAMES_;
+    records = readRecords_(TABLES.settings, table_('settings'));
+  }
+  const get = (id, def) => String((records.find((r) => r.id === id) || {}).value || def).trim();
+  NAMES_ = { p1: get('p1', 'Persona 1'), p2: get('p2', 'Persona 2') };
+  return NAMES_;
 }
 
 // Une lo que llega con lo que hay en la hoja: gana la versión más reciente.
@@ -228,7 +304,7 @@ function table_(key) {
     sh.getRange(1, 1, 1, t.cols.length).setValues([t.cols.map((c) => c[1])]).setFontWeight('bold');
     sh.setFrozenRows(1);
     // Desplegable con las categorías para poder elegirlas al editar a mano.
-    const names = Object.keys(CATEGORIAS).map((k) => CATEGORIAS[k]);
+    const names = Object.keys(CATEGORIAS).map((k) => CATEGORIAS[k][0]);
     const rule = SpreadsheetApp.newDataValidation().requireValueInList(names, true).setAllowInvalid(true).build();
     t.cols.forEach((c, i) => {
       const range = sh.getRange(2, i + 1, sh.getMaxRows() - 1, 1);
@@ -274,14 +350,17 @@ function toCell_(c, rec) {
     case 'num': return Number(v) || 0;
     case 'money': return Math.round((Number(v) || 0) * 100) / 100;
     case 'bool': return v ? 'Sí' : '';
-    case 'cat': return CATEGORIAS[v] || CATEGORIAS.otros;
+    case 'cat': return (CATEGORIAS[v] || CATEGORIAS.otros)[0];
+    case 'who':
+      if (v === 'p1' || v === 'p2') return names_()[v];
+      return c[0] === 'addedBy' && !v ? '' : LOS_DOS;
     case 'date': {
       const m = String(v || '').match(/^(\d{4})-(\d{2})-(\d{2})/);
       return m ? new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])) : '';
     }
     case 'readable':
       return Utilities.formatDate(new Date(Number(rec.updatedAt) || 0), Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm');
-    case 'computed': return INGRESOS.indexOf(rec.category) >= 0 ? 'Ingreso' : 'Gasto';
+    case 'computed': return GRUPOS[(CATEGORIAS[rec.category] || CATEGORIAS.otros)[1]];
     default: {
       const s = v === undefined || v === null ? '' : String(v).slice(0, MAX_CELL);
       // El apóstrofo evita que Sheets tome "= + - @" iniciales por una fórmula (no se ve ni se lee).
@@ -298,7 +377,8 @@ function fromCell_(c, v) {
     case 'money': return Math.round(toNumber_(v) * 100) / 100;
     case 'bool': return v === true || v === 'Sí' || v === 'TRUE';
     case 'cat': return catId_(v);
-    case 'date': return toIsoDate_(v);
+    case 'who': return whoId_(v, c[0] === 'addedBy' ? '' : 'comun');
+    case 'date': return v === '' && c[0] === 'deadline' ? '' : toIsoDate_(v);
     default: return v instanceof Date ? Utilities.formatDate(v, Session.getScriptTimeZone(), 'yyyy-MM-dd') : String(v);
   }
 }
@@ -307,8 +387,19 @@ function fromCell_(c, v) {
 function catId_(v) {
   const s = String(v || '').trim().toLowerCase();
   if (CATEGORIAS[s]) return s;
-  const k = Object.keys(CATEGORIAS).find((id) => CATEGORIAS[id].toLowerCase() === s);
+  const k = Object.keys(CATEGORIAS).find((id) => CATEGORIAS[id][0].toLowerCase() === s);
   return k || 'otros';
+}
+
+// "Ana" o "p1" -> "p1"; "Los dos" o un nombre desconocido -> "comun"; vacío -> def.
+function whoId_(v, def) {
+  const s = String(v || '').trim().toLowerCase();
+  if (s === 'p1' || s === 'p2' || s === 'comun') return s;
+  if (!s) return def;
+  const n = names_();
+  if (s === n.p1.toLowerCase()) return 'p1';
+  if (s === n.p2.toLowerCase()) return 'p2';
+  return 'comun';
 }
 
 // Acepta números de la hoja y textos como "1.234,56 €" o "-12,30".
