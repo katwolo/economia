@@ -9,13 +9,13 @@ function writeJson(key, value) {
   try { localStorage.setItem(key, JSON.stringify(value)); } catch { /* sin almacenamiento */ }
 }
 
-// URL de la aplicación web de Apps Script (Codigo.gs). Se escribe en la app (Más > Google Sheets
-// y Drive); si quieres que venga puesta en todos los dispositivos, pégala aquí.
+// URL de la aplicación web de Apps Script (Codigo.gs). La clave no va aquí: se escribe en la app.
+// Si se deja vacía, la app pide la URL en Más > Google Sheets y Drive.
 export const DEFAULT_URL = '';
 
 export const getConfig = () => {
   const c = readJson(CFG_KEY, {});
-  return { ...c, url: c.url || DEFAULT_URL };
+  return { ...c, url: DEFAULT_URL || c.url };
 };
 export const setConfig = (patch) => writeJson(CFG_KEY, { ...getConfig(), ...patch });
 export const isConfigured = () => {

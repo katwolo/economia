@@ -52,10 +52,10 @@ móviles (por ejemplo, los dos de la pareja) y ver o editar los movimientos en u
 5. **Implementar > Nueva implementación > Aplicación web**:
    - Ejecutar como: **Yo**
    - Quién tiene acceso: **Cualquier usuario**
-6. Copia la URL que termina en `/exec`.
-7. En la app: **Más > Google Sheets y Drive**, pega la URL, escribe la clave y pulsa
-   *Guardar y sincronizar*. Hazlo en cada móvil u ordenador que uses. (Si prefieres no
-   escribir la URL en cada dispositivo, pégala en `DEFAULT_URL`, en `sync.js`.)
+6. La URL que termina en `/exec` va puesta en la app (`DEFAULT_URL` en `sync.js`).
+   Si algún día creas una implementación nueva con otra URL, cámbiala ahí.
+7. En la app: **Más > Google Sheets y Drive**, escribe la clave y pulsa
+   *Guardar y sincronizar*. Hazlo en cada móvil u ordenador que uses.
 
 Si cambias `Codigo.gs` más adelante, pega la versión nueva (la clave sigue guardada en
 las propiedades del script) y usa **Implementar > Gestionar implementaciones >

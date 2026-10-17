@@ -2,7 +2,7 @@ import { db } from './db.js';
 import { CATEGORIES, catById, categorize, conceptKey } from './categories.js';
 import { readFile } from './importer.js';
 import { monthlyBars, categoryBars, budgetMeter, bindTooltips, eur } from './charts.js';
-import { api, getConfig, setConfig, isConfigured, getTombstones, addTombstone, clearTombstones, resetTombstones } from './sync.js';
+import { api, DEFAULT_URL, getConfig, setConfig, isConfigured, getTombstones, addTombstone, clearTombstones, resetTombstones } from './sync.js';
 
 const $ = (sel, el = document) => el.querySelector(sel);
 const app = $('#app');
@@ -384,8 +384,8 @@ function viewMore() {
       <h2>Google Sheets y Drive</h2>
       <p class="prose">Los movimientos, presupuestos y reglas se guardan en tu hoja de cálculo, y las fotos y PDF de los tickets en una carpeta de tu Drive. Conecta cada móvil u ordenador con la misma clave y toda la familia verá lo mismo.</p>
       <form id="sync-form" class="form full" autocomplete="off">
-        <label class="field"><span>URL de la aplicación web</span>
-          <input name="url" type="url" required placeholder="https://script.google.com/macros/s/…/exec" value="${esc(cfg.url || '')}"></label>
+        ${DEFAULT_URL ? '' : `<label class="field"><span>URL de la aplicación web</span>
+          <input name="url" type="url" required placeholder="https://script.google.com/macros/s/…/exec" value="${esc(cfg.url || '')}"></label>`}
         <label class="field"><span>Clave (la propiedad TOKEN del script)</span>
           <input name="token" type="password" required value="${esc(cfg.token || '')}"></label>
         <div class="btn-row">
@@ -886,7 +886,8 @@ document.addEventListener('submit', async (e) => {
     location.hash = '#/inicio';
   }
   if (f.id === 'sync-form') {
-    const url = f.url.value.trim();
+    // Con la URL integrada en sync.js solo hace falta la clave.
+    const url = DEFAULT_URL || f.url.value.trim();
     const token = f.token.value.trim();
     if (!/^https:\/\/script\.google(usercontent)?\.com\//.test(url)) { toast('La URL debe ser la de tu script de Google (…/exec)'); return; }
     const first = !getConfig().token;
