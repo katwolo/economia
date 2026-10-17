@@ -11,7 +11,8 @@ function writeJson(key, value) {
 
 // URL de la aplicación web de Apps Script (Codigo.gs). La clave no va aquí: se escribe en la app.
 // Si se deja vacía, la app pide la URL en Más > Google Sheets y Drive.
-export const DEFAULT_URL = '';
+export const DEFAULT_URL =
+  'https://script.google.com/macros/s/AKfycbzJZTdGROgIuP5-kPLiqEfJoxu9LHVuzASi5IlNG9vbVGEi7WZNXMcO0ktr43JGXAoh/exec';
 
 export const getConfig = () => {
   const c = readJson(CFG_KEY, {});

@@ -1,5 +1,5 @@
 // Red primero, caché como respaldo: la app funciona sin conexión.
-const CACHE = 'economia-v2';
+const CACHE = 'economia-v3';
 const ASSETS = ['./', 'index.html', 'styles.css', 'app.js', 'db.js', 'categories.js', 'importer.js', 'charts.js', 'sync.js', 'manifest.webmanifest', 'icon.svg'];
 
 self.addEventListener('install', (e) => {
