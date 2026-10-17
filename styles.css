@@ -71,6 +71,8 @@ a { color: inherit; }
 .prose { color: var(--muted); font-size: 14px; margin: 0; }
 .stack { display: flex; flex-direction: column; gap: 10px; align-items: flex-start; }
 .stack h2 { margin: 0; }
+.stack .form { align-self: stretch; }
+#sync-status { min-height: 1.2em; }
 .empty { text-align: center; color: var(--muted); padding: 24px 12px; list-style: none; }
 .note {
   background: var(--surface-2); border-left: 3px solid var(--accent);

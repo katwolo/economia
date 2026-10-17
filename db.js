@@ -1,6 +1,6 @@
-// Envoltorio mínimo de IndexedDB: movimientos y ajustes (presupuestos, reglas).
+// Envoltorio mínimo de IndexedDB: movimientos, ajustes (presupuestos, reglas) y archivos de tickets.
 const DB_NAME = 'economia';
-const VERSION = 1;
+const VERSION = 2;
 let dbPromise;
 
 function open() {
@@ -9,8 +9,9 @@ function open() {
       const req = indexedDB.open(DB_NAME, VERSION);
       req.onupgradeneeded = () => {
         const d = req.result;
-        d.createObjectStore('movs', { keyPath: 'id' });
-        d.createObjectStore('meta');
+        if (!d.objectStoreNames.contains('movs')) d.createObjectStore('movs', { keyPath: 'id' });
+        if (!d.objectStoreNames.contains('meta')) d.createObjectStore('meta');
+        if (!d.objectStoreNames.contains('blobs')) d.createObjectStore('blobs');
       };
       req.onsuccess = () => resolve(req.result);
       req.onerror = () => reject(req.error);

@@ -2,6 +2,7 @@ import { db } from './db.js';
 import { CATEGORIES, catById, categorize, conceptKey } from './categories.js';
 import { readFile } from './importer.js';
 import { monthlyBars, categoryBars, budgetMeter, bindTooltips, eur } from './charts.js';
+import { api, getConfig, setConfig, isConfigured, getTombstones, addTombstone, clearTombstones, resetTombstones } from './sync.js';
 
 const $ = (sel, el = document) => el.querySelector(sel);
 const app = $('#app');
@@ -23,6 +24,8 @@ const ICONS = {
   next: '<path d="M9 5l7 7-7 7"/>',
   trash: '<path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/>',
   file: '<path d="M6 3h9l4 4v14H6z"/><path d="M9 11h7M9 15h7M9 7h4"/>',
+  cloud: '<path d="M7 18a4 4 0 0 1-.5-8A6 6 0 0 1 18 9a4.5 4.5 0 0 1-.5 9z"/>',
+  receipt: '<path d="M6 3h12v18l-3-2-3 2-3-2-3 2z"/><path d="M9 8h6M9 12h6"/>',
   repeat: '<path d="M4 9a7 7 0 0 1 12-3l2 2M20 15a7 7 0 0 1-12 3l-2-2"/><path d="M18 4v4h-4M6 20v-4h4"/>',
 };
 const icon = (name) => `<svg class="ic" viewBox="0 0 24 24" aria-hidden="true">${ICONS[name]}</svg>`;
@@ -42,8 +45,10 @@ const fmtShort = (s) => new Date(s + 'T00:00').toLocaleDateString('es-ES', { day
 
 // ---------- Estado ----------
 let movs = [];
-let budgets = {}; // { categoria: límite mensual }
-let rules = []; // [{ key, category }] aprendidas al corregir categorías
+// Presupuestos y reglas se guardan como registros para poder sincronizarlos uno a uno.
+let budgetRecs = []; // [{ id: categoría, limit, updatedAt }]
+let budgets = {}; // { categoría: límite mensual }, calculado a partir de budgetRecs
+let rules = []; // [{ id, key, category, updatedAt }] aprendidas al corregir categorías
 let month = monthOf(today());
 let query = '';
 let filter = 'all';
@@ -51,20 +56,41 @@ let review = null; // movimientos leídos de un archivo, pendientes de confirmar
 let receipt = null; // ticket leído, pendiente de confirmar
 
 async function load() {
-  [movs, budgets, rules] = await Promise.all([db.all('movs'), db.get('meta', 'budgets'), db.get('meta', 'rules')]);
-  budgets ||= {};
-  rules ||= [];
+  let saved;
+  [movs, saved, rules] = await Promise.all([db.all('movs'), db.get('meta', 'budgets'), db.get('meta', 'rules')]);
+  // Versión anterior: { categoría: límite } y reglas sin id.
+  budgetRecs = Array.isArray(saved) ? saved
+    : Object.entries(saved || {}).map(([id, limit]) => ({ id, limit, updatedAt: Date.now(), dirty: true }));
+  rules = (rules || []).map((r) => ({ id: r.key, updatedAt: Date.now(), dirty: true, ...r }));
+  refreshBudgets();
   // Si este mes no hay nada, empieza por el último mes con movimientos.
   if (movs.length && !movs.some((m) => monthOf(m.date) === month)) {
     month = monthOf(movs.reduce((a, b) => (a.date > b.date ? a : b)).date);
   }
 }
 
+const refreshBudgets = () => {
+  budgets = Object.fromEntries(budgetRecs.filter((r) => r.limit > 0).map((r) => [r.id, r.limit]));
+};
+
 const saveMov = (m) => {
   m.updatedAt = Date.now();
+  m.dirty = true;
+  scheduleSync();
   return db.put('movs', m);
 };
-const saveMeta = () => Promise.all([db.put('meta', budgets, 'budgets'), db.put('meta', rules, 'rules')]);
+const saveMeta = () => {
+  scheduleSync();
+  return Promise.all([db.put('meta', budgetRecs, 'budgets'), db.put('meta', rules, 'rules')]);
+};
+
+async function removeMov(id, { tombstone = true } = {}) {
+  const m = movs.find((x) => x.id === id);
+  if (tombstone && m?.remote) addTombstone('movs', id);
+  movs = movs.filter((x) => x.id !== id);
+  await Promise.all([db.del('movs', id), db.del('blobs', id)]);
+  if (tombstone) scheduleSync();
+}
 
 function newMov(fields) {
   const amount = Number(fields.amount) || 0;
@@ -76,8 +102,13 @@ function newMov(fields) {
     category: fields.category || categorize(fields.concept || '', amount, rules),
     note: fields.note || '',
     source: fields.source || 'manual',
+    driveId: '',
+    driveUrl: '',
+    mime: '',
+    hasFile: false,
     createdAt: Date.now(),
     updatedAt: Date.now(),
+    dirty: true,
   };
 }
 
@@ -85,7 +116,7 @@ function newMov(fields) {
 function learn(concept, category) {
   const key = conceptKey(concept);
   if (!key) return false;
-  rules = [...rules.filter((r) => r.key !== key), { key, category }];
+  rules = [...rules.filter((r) => r.key !== key), { id: key, key, category, updatedAt: Date.now(), dirty: true }];
   saveMeta();
   return key;
 }
@@ -176,11 +207,11 @@ function viewHome() {
     return `<section class="hero"><h1>Economía familiar</h1>
       <p class="muted">Sube el extracto de tu banco o una foto de un ticket y la app rellenará todo sola.</p></section>
       ${importCard()}
-      <div class="card stack">
+      ${isConfigured() ? '' : `<div class="card stack">
         <h2>¿Quieres verla con datos?</h2>
         <p class="prose">Carga unos meses de ejemplo para ver cómo quedan los gráficos. Luego puedes borrarlos desde <em>Más</em>.</p>
         <button class="btn" data-action="demo">Cargar datos de ejemplo</button>
-      </div>`;
+      </div>`}`;
   }
   const list = inMonth(month);
   const t = totals(list);
@@ -292,6 +323,7 @@ function viewEditor(id) {
       <label class="field"><span>Categoría</span><select name="category">${catOptions(cat)}</select></label>
       <label class="field"><span>Fecha</span><input type="date" name="date" value="${m.date}" required></label>
       <label class="field"><span>Nota</span><input name="note" value="${esc(m.note)}" placeholder="Opcional"></label>
+      ${!isNew && (m.hasFile || m.driveUrl) ? `<button type="button" class="btn" data-action="open-file">${icon('receipt')} Ver ticket</button>` : ''}
       <button class="btn primary wide">${isNew ? 'Guardar' : 'Guardar cambios'}</button>
     </form>
     ${id === 'ticket' && receipt?.text ? `<details class="card"><summary>Ver el texto leído</summary><pre>${esc(receipt.text)}</pre></details>` : ''}`;
@@ -346,10 +378,28 @@ function viewBudgets() {
 }
 
 function viewMore() {
+  const cfg = getConfig();
   return `<div class="page-head"><h1>Más</h1></div>
     <div class="card stack">
+      <h2>Google Sheets y Drive</h2>
+      <p class="prose">Los movimientos, presupuestos y reglas se guardan en tu hoja de cálculo, y las fotos y PDF de los tickets en una carpeta de tu Drive. Conecta cada móvil u ordenador con la misma clave y toda la familia verá lo mismo.</p>
+      <form id="sync-form" class="form full" autocomplete="off">
+        <label class="field"><span>URL de la aplicación web</span>
+          <input name="url" type="url" required placeholder="https://script.google.com/macros/s/…/exec" value="${esc(cfg.url || '')}"></label>
+        <label class="field"><span>Clave (la propiedad TOKEN del script)</span>
+          <input name="token" type="password" required value="${esc(cfg.token || '')}"></label>
+        <div class="btn-row">
+          <button class="btn primary">${icon('cloud')} Guardar y sincronizar</button>
+          ${isConfigured() ? `<button type="button" class="btn" data-action="sync-now">Sincronizar ahora</button>
+            <button type="button" class="btn danger" data-action="sync-off">Desconectar</button>` : ''}
+        </div>
+      </form>
+      <p class="prose" id="sync-status"></p>
+    </div>
+    <div class="card stack">
       <h2>Copia de seguridad</h2>
-      <p class="prose">Todo se guarda solo en este dispositivo. Haz una copia de vez en cuando o para pasarla a otro móvil.</p>
+      <p class="prose">${isConfigured() ? 'Tus datos ya están en Google; esta copia es un respaldo extra en un archivo.'
+        : 'Todo se guarda solo en este dispositivo. Haz una copia de vez en cuando o para pasarla a otro móvil.'}</p>
       <div class="btn-row">
         <button class="btn" data-action="export">Descargar copia</button>
         <label class="btn file-btn">Restaurar copia<input type="file" id="restore-in" accept=".json,application/json"></label>
@@ -367,10 +417,207 @@ function viewMore() {
       <h2>Datos</h2>
       <p class="prose">${movs.length} movimientos guardados.</p>
       <div class="btn-row">
-        <button class="btn" data-action="demo">Cargar datos de ejemplo</button>
+        ${isConfigured() ? '' : '<button class="btn" data-action="demo">Cargar datos de ejemplo</button>'}
         <button class="btn danger" data-action="wipe">Borrar todo</button>
       </div>
     </div>`;
+}
+
+// ---------- Archivos de tickets ----------
+const blobToDataUrl = (blob) =>
+  new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(r.result);
+    r.onerror = () => reject(r.error);
+    r.readAsDataURL(blob);
+  });
+
+// Reduce las fotos grandes del móvil para que ocupen poco y suban antes a Drive.
+async function shrinkImage(file, max = 1800, quality = 0.82) {
+  if (!file.type.startsWith('image/') || file.size < 600e3) return file;
+  let bmp;
+  try {
+    bmp = await createImageBitmap(file, { imageOrientation: 'from-image' });
+    const scale = Math.min(1, max / Math.max(bmp.width, bmp.height));
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.round(bmp.width * scale);
+    canvas.height = Math.round(bmp.height * scale);
+    canvas.getContext('2d').drawImage(bmp, 0, 0, canvas.width, canvas.height);
+    return await new Promise((resolve) => canvas.toBlob((b) => resolve(b || file), 'image/jpeg', quality));
+  } catch {
+    return file;
+  } finally {
+    bmp?.close();
+  }
+}
+
+// Guarda la foto o el PDF del ticket junto al movimiento; se sube a Drive al sincronizar.
+async function attachFile(m, file) {
+  if (!file) return;
+  const blob = await shrinkImage(file);
+  await db.put('blobs', blob, m.id);
+  Object.assign(m, { hasFile: true, mime: (blob.type || file.type || 'application/octet-stream').split(';')[0] });
+}
+
+async function openFile(id) {
+  const m = movs.find((x) => x.id === id);
+  if (!m) return;
+  // Se abre la ventana ya, dentro del clic, para que el navegador no la bloquee.
+  const win = window.open('', '_blank');
+  const blob = await db.get('blobs', id);
+  if (blob) {
+    const url = URL.createObjectURL(blob);
+    if (win) win.location.href = url; else location.href = url;
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
+  } else if (m.driveUrl) {
+    if (win) win.location.href = m.driveUrl; else location.href = m.driveUrl;
+  } else {
+    win?.close();
+    toast('El ticket no está en este dispositivo');
+  }
+}
+
+// ---------- Sincronización con Google Sheets y Drive ----------
+let syncTimer = null;
+let syncing = false;
+let syncAgain = false;
+
+function scheduleSync(delay = 4000) {
+  if (!isConfigured()) return;
+  clearTimeout(syncTimer);
+  syncTimer = setTimeout(() => syncNow(), delay);
+}
+
+const stripLocal = ({ dirty, remote, hasFile, key, ...rest }) => rest;
+const fmtRel = (ts) => {
+  const sec = (Date.now() - ts) / 1000;
+  if (sec < 60) return 'ahora mismo';
+  if (sec < 3600) return `hace ${Math.floor(sec / 60)} min`;
+  if (sec < 86400) return `hace ${Math.floor(sec / 3600)} h`;
+  return new Date(ts).toLocaleDateString('es-ES', { day: 'numeric', month: 'short' });
+};
+
+async function syncNow({ manual = false } = {}) {
+  if (!isConfigured()) return;
+  if (syncing) { syncAgain = true; return; }
+  if (!navigator.onLine) { if (manual) toast('Sin conexión: se sincronizará más tarde'); return; }
+  syncing = true;
+  clearTimeout(syncTimer);
+  updateSyncStatus('Sincronizando…');
+  try {
+    // 1. Tickets nuevos → carpeta de Drive
+    for (const m of movs) {
+      if (!m.hasFile || m.driveId) continue;
+      const blob = await db.get('blobs', m.id);
+      if (!blob) continue;
+      const ext = { 'application/pdf': 'pdf', 'image/png': 'png', 'image/webp': 'webp' }[m.mime] || 'jpg';
+      const base = `${m.date} ${m.concept || catById(m.category).name}`.replace(/[\\/:*?"<>|]/g, '').slice(0, 60);
+      const up = await api('upload', { name: `${base}.${ext}`, mime: m.mime, data: (await blobToDataUrl(blob)).split(',')[1] });
+      Object.assign(m, { driveId: up.id, driveUrl: up.url, updatedAt: Date.now(), dirty: true });
+      await db.put('movs', m);
+    }
+
+    // 2. Cambios → hoja de cálculo
+    const sent = {
+      movs: movs.filter((m) => m.dirty).map(stripLocal),
+      budgets: budgetRecs.filter((r) => r.dirty).map(stripLocal),
+      rules: rules.filter((r) => r.dirty).map(stripLocal),
+    };
+    const tombs = getTombstones();
+    const res = await api('sync', {
+      movs: [...sent.movs, ...tombs.filter((t) => t.kind === 'movs')],
+      budgets: sent.budgets,
+      rules: [...sent.rules, ...tombs.filter((t) => t.kind === 'rules')],
+    });
+    clearTombstones(tombs);
+
+    // Lo enviado queda marcado como guardado, salvo que haya cambiado mientras tanto.
+    const done = [];
+    for (const [kind, list] of [['movs', movs], ['budgets', budgetRecs], ['rules', rules]]) {
+      const version = new Map(sent[kind].map((r) => [r.id, r.updatedAt]));
+      for (const r of list) {
+        if (r.dirty && version.get(r.id) === r.updatedAt) {
+          r.dirty = false;
+          r.remote = true;
+          if (kind === 'movs') done.push(r);
+        }
+      }
+    }
+    await Promise.all(done.map((m) => db.put('movs', m)));
+
+    // 3. Lo que venga de la hoja (otros dispositivos o ediciones a mano)
+    let changed = await mergeRemote('movs', res.movs || []);
+    changed = mergeRemote('budgets', res.budgets || []) || changed;
+    changed = mergeRemote('rules', res.rules || []) || changed;
+    refreshBudgets();
+    await saveMetaQuiet();
+
+    setConfig({ lastSync: Date.now(), lastError: '' });
+    updateSyncStatus();
+    if (manual) toast('Sincronizado con Google');
+    const typing = ['INPUT', 'SELECT', 'TEXTAREA'].includes(document.activeElement?.tagName);
+    if (changed && !typing && !/#\/(mov\/|revisar)/.test(location.hash)) render();
+  } catch (err) {
+    setConfig({ lastError: err.message });
+    updateSyncStatus();
+    if (manual) toast(err.message);
+  } finally {
+    syncing = false;
+    if (syncAgain) { syncAgain = false; scheduleSync(1000); }
+  }
+}
+
+const saveMetaQuiet = () => Promise.all([db.put('meta', budgetRecs, 'budgets'), db.put('meta', rules, 'rules')]);
+
+// Gana la versión más reciente; un cambio local aún sin enviar no se pisa con uno más antiguo.
+function mergeRemote(kind, list) {
+  let changed = false;
+  const writes = [];
+  for (const r of list) {
+    if (kind === 'rules') r.key = r.id;
+    // removeMov cambia la lista de movimientos, así que se vuelve a leer en cada vuelta.
+    const arr = { movs, budgets: budgetRecs, rules }[kind];
+    const local = arr.find((x) => x.id === r.id);
+    const localWins = local && local.dirty && local.updatedAt > r.updatedAt;
+    if (r.deleted) {
+      if (!local || localWins) continue;
+      if (kind === 'movs') writes.push(removeMov(r.id, { tombstone: false }));
+      else arr.splice(arr.indexOf(local), 1);
+      changed = true;
+      continue;
+    }
+    if (local) {
+      local.remote = true;
+      if (localWins || r.updatedAt <= local.updatedAt) continue;
+      if (kind === 'movs') {
+        const hadUpload = Boolean(local.driveId);
+        if (hadUpload && local.driveId !== r.driveId) writes.push(db.del('blobs', r.id));
+        r.hasFile = Boolean(r.driveId) || (local.hasFile && !hadUpload);
+      }
+      Object.assign(local, r, { dirty: false });
+      if (kind === 'movs') writes.push(db.put('movs', local));
+    } else {
+      const fresh = { ...r, remote: true, dirty: false };
+      if (kind === 'movs') {
+        fresh.hasFile = Boolean(r.driveId);
+        movs.push(fresh);
+        writes.push(db.put('movs', fresh));
+      } else arr.push(fresh);
+    }
+    changed = true;
+  }
+  return kind === 'movs' ? Promise.all(writes).then(() => changed) : changed;
+}
+
+function updateSyncStatus(text) {
+  const el = $('#sync-status');
+  if (!el) return;
+  const c = getConfig();
+  if (text) el.textContent = text;
+  else if (!isConfigured()) el.textContent = 'Sin conectar: todo se guarda solo en este dispositivo.';
+  else if (c.lastError) el.textContent = `El último intento falló: ${c.lastError}`;
+  else if (c.lastSync) el.textContent = `Última sincronización: ${fmtRel(c.lastSync)}`;
+  else el.textContent = 'Conectado, aún sin sincronizar.';
 }
 
 // ---------- Router ----------
@@ -393,6 +640,7 @@ function render() {
   };
   app.innerHTML = (views[view] || viewHome)();
   bindTooltips(app);
+  updateSyncStatus();
   // Solo vuelve arriba al cambiar de pantalla, no al marcar una casilla o cambiar de mes.
   if (location.hash !== lastRoute) window.scrollTo(0, 0);
   lastRoute = location.hash;
@@ -410,12 +658,12 @@ async function handleFiles(files) {
       const res = await readFile(file, say);
       if (res.kind === 'receipt') {
         if (files.length === 1) {
-          receipt = res;
+          receipt = { ...res, file };
           say('');
           location.hash = '#/mov/ticket';
           return;
         }
-        if (res.draft.amount) rows.push({ ...res.draft, source: 'ticket' });
+        if (res.draft.amount) rows.push({ ...res.draft, source: 'ticket', file });
       } else {
         rows.push(...res.rows.map((r) => ({ ...r, source: 'extracto' })));
       }
@@ -444,8 +692,10 @@ async function handleFiles(files) {
 async function saveReview() {
   const keep = review.rows.filter((r) => r.keep);
   const added = keep.map((r) => newMov(r));
+  await Promise.all(keep.map((r, i) => r.file && attachFile(added[i], r.file)));
   await Promise.all(added.map((m) => db.put('movs', m)));
   movs.push(...added);
+  scheduleSync(1000);
   month = monthOf(added[0].date);
   review = null;
   toast(`${added.length} movimientos añadidos`);
@@ -484,6 +734,7 @@ async function loadDemo() {
   }
   await Promise.all(demo.map((m) => db.put('movs', m)));
   movs.push(...demo);
+  scheduleSync(1000);
   month = base;
   toast('Datos de ejemplo cargados');
   location.hash = '#/inicio';
@@ -506,32 +757,49 @@ document.addEventListener('click', async (e) => {
   if (!t) return;
   if (t.dataset.month) { month = shiftMonth(month, Number(t.dataset.month)); render(); }
   if (t.dataset.filter) { filter = t.dataset.filter; render(); }
-  if (t.dataset.forget) { rules.splice(Number(t.dataset.forget), 1); await saveMeta(); render(); }
+  if (t.dataset.forget) {
+    const [r] = rules.splice(Number(t.dataset.forget), 1);
+    if (r.remote) addTombstone('rules', r.id);
+    await saveMeta();
+    render();
+  }
   const action = t.dataset.action;
   if (action === 'demo') loadDemo();
   if (action === 'save-review') saveReview();
   if (action === 'delete') {
     const id = $('#mov-form').dataset.id;
     if (!confirm('¿Borrar este movimiento?')) return;
-    await db.del('movs', id);
-    movs = movs.filter((m) => m.id !== id);
+    await removeMov(id);
     toast('Movimiento borrado');
     history.back();
   }
+  if (action === 'open-file') openFile($('#mov-form').dataset.id);
+  if (action === 'sync-now') syncNow({ manual: true });
+  if (action === 'sync-off') {
+    if (!confirm('¿Dejar de sincronizar este dispositivo? Tus datos en Google no se borran.')) return;
+    setConfig({ token: '', lastSync: 0, lastError: '' });
+    render();
+  }
   if (action === 'export') {
-    download(`economia-${today()}.json`, JSON.stringify({ app: 'economia', version: 1, movs, budgets, rules }, null, 1), 'application/json');
+    const data = { app: 'economia', version: 2, movs: movs.map(stripLocal), budgets: budgetRecs.map(stripLocal), rules: rules.map(stripLocal) };
+    download(`economia-${today()}.json`, JSON.stringify(data, null, 1), 'application/json');
   }
   if (action === 'csv') {
     const rows = [['Fecha', 'Concepto', 'Categoría', 'Importe', 'Nota']].concat(
       [...movs].sort((a, b) => a.date.localeCompare(b.date))
         .map((m) => [m.date, m.concept, catById(m.category).name, String(m.amount).replace('.', ','), m.note]));
     const csv = rows.map((r) => r.map((c) => `"${String(c ?? '').replace(/"/g, '""')}"`).join(';')).join('\r\n');
-    download(`movimientos-${today()}.csv`, '﻿' + csv, 'text/csv');
+    download(`movimientos-${today()}.csv`, '\uFEFF' + csv, 'text/csv');
   }
   if (action === 'wipe') {
-    if (!confirm('Se borrarán todos los movimientos, presupuestos y reglas de este dispositivo. ¿Seguro?')) return;
-    await Promise.all([db.clear('movs'), db.clear('meta')]);
-    movs = []; budgets = {}; rules = [];
+    const msg = isConfigured()
+      ? 'Se borrarán los datos de este dispositivo. Lo guardado en Google no se toca y volverá en la próxima sincronización. ¿Seguro?'
+      : 'Se borrarán todos los movimientos, presupuestos y reglas de este dispositivo. ¿Seguro?';
+    if (!confirm(msg)) return;
+    await Promise.all([db.clear('movs'), db.clear('meta'), db.clear('blobs')]);
+    movs = []; budgetRecs = []; budgets = {}; rules = [];
+    resetTombstones();
+    setConfig({ lastSync: 0 });
     toast('Todo borrado');
     render();
   }
@@ -547,10 +815,13 @@ document.addEventListener('change', async (e) => {
     try {
       const data = JSON.parse(await t.files[0].text());
       if (data.app !== 'economia' || !Array.isArray(data.movs)) throw new Error();
-      await Promise.all(data.movs.map((m) => db.put('movs', m)));
-      budgets = data.budgets || {}; rules = data.rules || [];
+      await Promise.all(data.movs.map((m) => db.put('movs', { ...m, dirty: true })));
+      await db.put('meta', data.budgets || [], 'budgets');
+      await db.put('meta', data.rules || [], 'rules');
+      await load();
+      budgetRecs.forEach((r) => (r.dirty = true));
+      rules.forEach((r) => (r.dirty = true));
       await saveMeta();
-      movs = await db.all('movs');
       toast(`Copia restaurada: ${data.movs.length} movimientos`);
       render();
     } catch {
@@ -600,10 +871,13 @@ document.addEventListener('submit', async (e) => {
       if (data.category !== autoCat && learn(data.concept, data.category)) toast('Guardado. Lo recordaré para la próxima vez');
       else toast('Guardado');
     } else {
-      const m = newMov({ ...data, amount, source: receipt && location.hash.endsWith('ticket') ? 'ticket' : 'manual' });
+      const fromTicket = receipt && location.hash.endsWith('ticket');
+      const m = newMov({ ...data, amount, source: fromTicket ? 'ticket' : 'manual' });
       if (data.category !== m.category) learn(data.concept, data.category);
       m.category = data.category;
+      if (fromTicket) await attachFile(m, receipt.file);
       await db.put('movs', m);
+      scheduleSync(1000);
       movs.push(m);
       receipt = null;
       month = monthOf(m.date);
@@ -611,12 +885,26 @@ document.addEventListener('submit', async (e) => {
     }
     location.hash = '#/inicio';
   }
+  if (f.id === 'sync-form') {
+    const url = f.url.value.trim();
+    const token = f.token.value.trim();
+    if (!/^https:\/\/script\.google(usercontent)?\.com\//.test(url)) { toast('La URL debe ser la de tu script de Google (…/exec)'); return; }
+    const first = !getConfig().token;
+    setConfig({ url, token, lastError: '' });
+    // Primera vez: hay que subir todo lo que ya existe en este dispositivo.
+    if (first) [...movs, ...budgetRecs, ...rules].forEach((r) => (r.dirty = true));
+    await syncNow({ manual: true });
+    if (location.hash === '#/mas') render();
+  }
   if (f.id === 'budget-form') {
-    budgets = {};
     for (const [k, v] of new FormData(f)) {
-      const n = parseNum(v);
-      if (v.trim() && n > 0) budgets[k] = n;
+      const n = v.trim() && parseNum(v) > 0 ? parseNum(v) : 0;
+      const rec = budgetRecs.find((r) => r.id === k);
+      if ((rec?.limit || 0) === n) continue;
+      if (rec) Object.assign(rec, { limit: n, updatedAt: Date.now(), dirty: true });
+      else budgetRecs.push({ id: k, limit: n, updatedAt: Date.now(), dirty: true });
     }
+    refreshBudgets();
     await saveMeta();
     toast('Presupuestos guardados');
     render();
@@ -638,7 +926,16 @@ document.addEventListener('drop', (e) => {
 nav.querySelector('.fab').addEventListener('click', () => { location.hash = '#/importar'; });
 window.addEventListener('hashchange', render);
 
-if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
+window.addEventListener('online', () => scheduleSync(500));
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) syncNow();
+  else scheduleSync(500);
+});
+
+if ('serviceWorker' in navigator && location.protocol !== 'file:') {
+  navigator.serviceWorker.register('sw.js').catch(() => {});
+}
 
 await load();
 render();
+scheduleSync(1000);
